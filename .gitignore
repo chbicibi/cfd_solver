@@ -2,3 +2,4 @@
 *.npz
 *.plt
 __pycache__/
+ITO_Data/
