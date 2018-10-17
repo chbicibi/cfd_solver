@@ -1,0 +1,4 @@
+At line 131 of file hsmac_omp.f08
+Fortran runtime error: End of file
+2
+[Stopwatch@2018/09/24 05:16:34] CFD: 0.957秒
