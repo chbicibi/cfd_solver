@@ -1,5 +1,5 @@
 *.npy
 *.npz
 *.plt
+ITO_Data
 __pycache__/
-ITO_Data/
