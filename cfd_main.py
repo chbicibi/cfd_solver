@@ -15,12 +15,18 @@ import mk_grid as mg
 
 EXE_EXT = 'exe' if os.environ.get('OS') == 'Windows_NT' else 'out'
 
-def run_cfd():
+def run_cfd(resume=False):
     info = mg.get_info('in2d.txt')
     dest = info['dest']
     os.makedirs(dest, exist_ok=True)
+
+    if resume:
+        if not rewrite_resume(dest, f'in2d.txt'):
+            return
+
     for file in ('in2d.txt', 'grid.csv', 'grid.png'):
         shutil.copy(file, dest)
+
     exe = glob.glob(f'bin/a.{EXE_EXT}')[0]
     res = subprocess.run(['./'+ exe])
     print(res.returncode)
@@ -28,6 +34,35 @@ def run_cfd():
 
 
 ################################################################################
+
+def rewrite_resume(dest, file):
+    with ut.chdir(dest):
+        plts = glob.glob('*.plt')
+
+    if not plts:
+        return False
+
+    last = max(map(int, (re.search(r'\d+', f)[0] for f in plts)))
+
+    with open(file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    iout = int(re.findall(r'\d+', lines[30])[0])
+
+    with open(file, 'w', encoding='utf-8') as f:
+        for i, l in enumerate(lines):
+            if i == 15:
+                ll = re.split(r'(?<= )(?=\S)', l)
+                ll[1] = f'{(last+1)*iout:<9} '
+                l = ''.join(ll)
+
+            elif i == 27:
+                ll = re.split(r'(?<= )(?=\S)', l)
+                ll[4] = f'{last+1}\n'
+                l = ''.join(ll)
+
+            f.write(l)
+    return True
+
 
 def read_plt(file):
     prog = re.compile(r'\d+')
@@ -46,18 +81,19 @@ def read_plt(file):
 
 
 @contextmanager
-def post_base():
-    info = mg.get_info('in2d.txt')
-    dest = info['dest']
+def post_base(dest=None):
+    if not dest:
+        info = mg.get_info('in2d.txt')
+        dest = info['dest']
     with ut.chdir(dest):
         yield
 
 
-def collect_result():
+def collect_result(dest):
     print('collect_result')
     odir = 'result'
     rdir = '__raw__'
-    with post_base():
+    with post_base(dest):
         os.makedirs(odir, exist_ok=True)
         os.makedirs(rdir, exist_ok=True)
         files = sorted(glob.iglob('out_*.plt'))
@@ -116,8 +152,11 @@ def __test__():
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-run', action='store_true', help='alpha')
+    parser.add_argument('-run', action='store_true', help='start calculating')
     parser.add_argument('-res', action='store_true', help='converting result files')
+    parser.add_argument('--resume', action='store_true',
+                        help='resume')
+    parser.add_argument('-dest', help='output directory name')
     parser.add_argument('-pack', action='store_true', help='packing result files')
     parser.add_argument('-test', action='store_true', help='test mode')
     args = parser.parse_args()
@@ -129,10 +168,16 @@ def main():
 
     if args.run:
         with ut.stopwatch('CFD'):
-            run_cfd()
+            run_cfd(resume=args.resume)
     elif args.res:
         with ut.stopwatch('RES'):
-            collect_result()
+            if args.dest:
+                collect_result(args.dest)
+            else:
+                for d in os.listdir('.'):
+                    if os.path.isdir(d) and os.path.isfile(d+'/in2d.txt'):
+                        print(d)
+                        collect_result(d)
     elif args.pack:
         pack_data()
     elif args.test:

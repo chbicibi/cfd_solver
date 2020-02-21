@@ -235,7 +235,7 @@ program hsmac2d
     allocate(delp_a(1 : nx, 1 : ny), source=0d0)
     ! 計算条件の設定
     ! uの初期値設定
-    un(0 : nx, 0 : ny + 1) = 0.0d0
+    un(0 : nx, 0 : ny + 1) = 1.0d0
     ! vの初期値設定
     vn(0 : nx + 1, 0 : ny) = 0.0d0
     ! pの初期値設定

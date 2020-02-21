@@ -1,10 +1,11 @@
-#! /usr/bin/env python3
-
 import argparse
 import csv
 import math
+import os
 import re
+
 import numpy as np
+from PIL import Image, ImageFilter
 
 
 ################################################################################
@@ -107,6 +108,59 @@ def grid_wing(shape, alpha, params=(0.02, 0.4, 0.12, 1.0)):
 
 ################################################################################
 
+def grid_cylinder(shape, alpha=0):
+    ny, nx = shape
+    grid = np.ones(shape, dtype=np.uint8)
+
+    r = ny / 6
+    cx = nx / 4
+    cy = ny / 2
+
+    for i in range(nx):
+        for j in range(ny):
+            if (cx - i) ** 2 + (cy - j) ** 2 < r ** 2:
+                grid[j, i] = 0
+    return grid
+
+
+def grid_ellipse(shape, alpha=0):
+    ny, nx = shape
+    grid = np.ones(shape, dtype=np.uint8)
+
+    a = ny / 6
+    b = ny / 8
+    cx = nx / 4
+    cy = ny / 2
+    a_rad = math.radians(-alpha)
+
+    for i in range(nx):
+        for j in range(ny):
+            x_, y_ = rotate(i, j, cx, cy, a_rad)
+            if ((cx - x_) / a) ** 2 + ((cy - y_) / b) ** 2 < 1:
+                grid[j, i] = 0
+    return grid
+
+
+def grid_prism(shape, alpha=0):
+    ny, nx = shape
+    grid = np.ones(shape, dtype=np.uint8)
+
+    h = ny / 6 / math.sqrt(2) # half
+    w = ny / 6 / math.sqrt(2) # half
+    cx = nx / 4
+    cy = ny / 2
+    a_rad = math.radians(-alpha)
+
+    for i in range(nx):
+        for j in range(ny):
+            x_, y_ = rotate(i, j, cx, cy, a_rad)
+            if cx - w < x_ < cx + w and cy - h < y_ < cy + h:
+                grid[j, i] = 0
+    return grid
+
+
+################################################################################
+
 def get_info(input_file):
     with open(input_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -133,10 +187,48 @@ def make_grid(args, info):
     t = args.t
     print('alpha=', a, 'deg', 'type=', t)
     shape = [info[k] for k in ('ny', 'nx')]
+
     if t == 'wing':
         grid = grid_wing(shape, a)
-    else:
+
+    elif t == 'cylinder':
+        grid = grid_cylinder(shape, a)
+
+    elif t == 'ellipse':
+        grid = grid_ellipse(shape, a)
+
+    elif t == 'prism':
+        grid = grid_prism(shape, a)
+
+    elif t == 'plate':
         grid = grid_plate_a(shape, a)
+
+    else:
+        raise AttributeError
+
+    return grid
+
+
+################################################################################
+
+def cvt_grid(file):
+    if not file.endswith('.png'):
+        file += '.png'
+
+    if not os.path.isfile(file):
+        print('pngファイルがありません:', file)
+        raise FileNotFoundError
+
+    image = Image.open(file)
+    array = np.asarray(image)
+
+    if array.ndim > 2:
+        array = array[:, :, 0]
+
+    print(array.shape, array.dtype)
+
+    grid = np.where(array < 128, 1, 0).astype('u1')
+
     return grid
 
 
@@ -154,8 +246,11 @@ def get_args():
     # parser.add_argument('-debug', help='enable debug mode', action='store_true')
     # parser.add_argument('-concat', help='concatenate video files', action='store_true')
 
-    parser.add_argument('-a', default=0, type=int, help='alpha')
-    parser.add_argument('-t', default='plate', type=str, help='grid type')
+    parser.add_argument('-a', default=0, type=float, help='alpha')
+    parser.add_argument('-t', choices=['wing', 'cylinder', 'plate', 'ellipse',
+                                       'prism'],
+                        help='grid shape')
+    parser.add_argument('-i', default='', help='create from png')
     parser.add_argument('-test', action='store_true', help='test mode')
     args = parser.parse_args()
     return args
@@ -164,8 +259,13 @@ def get_args():
 def main():
     args = get_args()
     info = get_info('in2d.txt')
-    grid = make_grid(args, info)
-    print(grid.shape)
+
+    if args.i:
+        grid = cvt_grid(args.i)
+    else:
+        grid = make_grid(args, info)
+
+    print(grid.shape, grid.dtype)
     dump_grid(grid, 'grid.csv')
 
 

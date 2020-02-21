@@ -1,5 +1,9 @@
-*.npy
-*.npz
-*.plt
-ITO_Data
-__*__/
+*
+*/
+!.git/*
+!*.f08
+!*.md
+!*.py
+!*.sh
+!*.txt
+!.gitignore
