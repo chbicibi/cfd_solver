@@ -7,6 +7,8 @@ import re
 import numpy as np
 from PIL import Image, ImageFilter
 
+from plot_grid import plot_shape
+
 
 ################################################################################
 
@@ -108,11 +110,11 @@ def grid_wing(shape, alpha, params=(0.02, 0.4, 0.12, 1.0)):
 
 ################################################################################
 
-def grid_cylinder(shape, alpha=0):
+def grid_cylinder(shape, alpha=0, ry=6):
     ny, nx = shape
     grid = np.ones(shape, dtype=np.uint8)
 
-    r = ny / 6
+    r = ny / ry
     cx = nx / 4
     cy = ny / 2
 
@@ -123,12 +125,12 @@ def grid_cylinder(shape, alpha=0):
     return grid
 
 
-def grid_ellipse(shape, alpha=0):
+def grid_ellipse(shape, alpha=0, ry=8):
     ny, nx = shape
     grid = np.ones(shape, dtype=np.uint8)
 
     a = ny / 6
-    b = ny / 8
+    b = ny / ry
     cx = nx / 4
     cy = ny / 2
     a_rad = math.radians(-alpha)
@@ -141,12 +143,12 @@ def grid_ellipse(shape, alpha=0):
     return grid
 
 
-def grid_prism(shape, alpha=0):
+def grid_prism(shape, alpha=0, ry=8):
     ny, nx = shape
     grid = np.ones(shape, dtype=np.uint8)
 
-    h = ny / 6 / math.sqrt(2) # half
     w = ny / 6 / math.sqrt(2) # half
+    h = w * 6 / ry
     cx = nx / 4
     cy = ny / 2
     a_rad = math.radians(-alpha)
@@ -164,7 +166,7 @@ def grid_prism(shape, alpha=0):
 def get_info(input_file):
     with open(input_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    nx, ny = [int(s) for s in re.findall(r'\d+', lines[24])]
+    nx, ny = [int(s) for s in re.findall(r'\d+', lines[24])][:2]
     dest = re.findall(r'\S+', lines[30])[1].strip()
     info = {
         'nx': nx,
@@ -182,7 +184,7 @@ def dump_grid(grid, file):
 
 ################################################################################
 
-def make_grid(args, info):
+def make_grid(args, info, **kwargs):
     a = args.a
     t = args.t
     print('alpha=', a, 'deg', 'type=', t)
@@ -192,13 +194,13 @@ def make_grid(args, info):
         grid = grid_wing(shape, a)
 
     elif t == 'cylinder':
-        grid = grid_cylinder(shape, a)
+        grid = grid_cylinder(shape, a, **kwargs)
 
     elif t == 'ellipse':
-        grid = grid_ellipse(shape, a)
+        grid = grid_ellipse(shape, a, **kwargs)
 
     elif t == 'prism':
-        grid = grid_prism(shape, a)
+        grid = grid_prism(shape, a, **kwargs)
 
     elif t == 'plate':
         grid = grid_plate_a(shape, a)
@@ -248,25 +250,33 @@ def get_args():
 
     parser.add_argument('-a', default=0, type=float, help='alpha')
     parser.add_argument('-t', choices=['wing', 'cylinder', 'plate', 'ellipse',
-                                       'prism'],
+                                       'prism'], default='cylinder',
                         help='grid shape')
+    parser.add_argument('-r', default=6, type=float, help='y ratio')
     parser.add_argument('-i', default='', help='create from png')
-    parser.add_argument('-test', action='store_true', help='test mode')
+    parser.add_argument('--plot', action='store_true', help='plot shape')
+    parser.add_argument('--test', action='store_true', help='test mode')
     args = parser.parse_args()
     return args
 
 
 def main():
     args = get_args()
+
+    if args.plot:
+        plot_shape('grid.csv', 'grid.png')
+        return
+
     info = get_info('in2d.txt')
 
     if args.i:
         grid = cvt_grid(args.i)
     else:
-        grid = make_grid(args, info)
+        grid = make_grid(args, info, ry=args.r)
 
     print(grid.shape, grid.dtype)
     dump_grid(grid, 'grid.csv')
+    plot_shape('grid.csv', 'grid.png')
 
 
 if __name__ == '__main__':

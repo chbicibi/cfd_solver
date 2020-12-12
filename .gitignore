@@ -1,9 +1,0 @@
-*
-*/
-!.git/*
-!*.f08
-!*.md
-!*.py
-!*.sh
-!*.txt
-!.gitignore

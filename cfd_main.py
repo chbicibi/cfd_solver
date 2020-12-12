@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 import argparse
 import glob
 import os
@@ -13,54 +11,62 @@ import mk_grid as mg
 
 '''NOTE: u, v, p, f, w'''
 
-EXE_EXT = 'exe' if os.environ.get('OS') == 'Windows_NT' else 'out'
-
-def run_cfd(resume=False):
-    info = mg.get_info('in2d.txt')
-    dest = info['dest']
-    os.makedirs(dest, exist_ok=True)
+def run_cfd(exe_path, resume=''):
+    if not os.path.isfile(exe_path):
+        raise FileNotFoundError(exe_path)
 
     if resume:
-        if not rewrite_resume(dest, f'in2d.txt'):
+        if not rewrite_resume(resume):
             return
+    else:
+        info = mg.get_info('in2d.txt')
+        dest = info['dest']
+        os.makedirs(dest, exist_ok=True)
 
-    for file in ('in2d.txt', 'grid.csv', 'grid.png'):
-        shutil.copy(file, dest)
+        for file in ('in2d.txt', 'grid.csv', 'grid.png'):
+            shutil.copy(file, dest)
 
-    exe = glob.glob(f'bin/a.{EXE_EXT}')[0]
-    res = subprocess.run(['./'+ exe])
+    # exe = glob.glob(exe_path)[0]
+    res = subprocess.run(['./'+ exe_path])
     print(res.returncode)
     return res.returncode
 
 
 ################################################################################
 
-def rewrite_resume(dest, file):
-    with ut.chdir(dest):
+def rewrite_resume(resume):
+    if not os.path.isdir(resume):
+        raise FileNotFoundError(resume)
+
+    with ut.chdir(resume):
         plts = glob.glob('*.plt')
 
-    if not plts:
-        return False
+        if not plts:
+            return False
 
-    last = max(map(int, (re.search(r'\d+', f)[0] for f in plts)))
+        last = max(map(int, (re.search(r'\d+', f)[0] for f in plts)))
 
-    with open(file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    iout = int(re.findall(r'\d+', lines[30])[0])
+        with open('in2d.txt', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        iout = int(re.findall(r'\d+', lines[30])[0])
 
-    with open(file, 'w', encoding='utf-8') as f:
-        for i, l in enumerate(lines):
-            if i == 15:
-                ll = re.split(r'(?<= )(?=\S)', l)
-                ll[1] = f'{(last+1)*iout:<9} '
-                l = ''.join(ll)
+        with open('in2d.txt', 'w', encoding='utf-8') as f:
+            for i, l in enumerate(lines):
+                if i == 15:
+                    ll = re.split(r'(?<= )(?=\S)', l)
+                    ll[1] = f'{(last+1)*iout:<9} '
+                    l = ''.join(ll)
 
-            elif i == 27:
-                ll = re.split(r'(?<= )(?=\S)', l)
-                ll[4] = f'{last+1}\n'
-                l = ''.join(ll)
+                elif i == 27:
+                    ll = re.split(r'(?<= )(?=\S)', l)
+                    ll[4] = f'{last+1}\n'
+                    l = ''.join(ll)
 
-            f.write(l)
+                f.write(l)
+
+        for file in ('in2d.txt', 'grid.csv', 'grid.png'):
+            shutil.copy(file, '../')
+
     return True
 
 
@@ -80,6 +86,28 @@ def read_plt(file):
     return res
 
 
+def read_raw(file):
+    def readf():
+        with open(file, 'rb') as f:
+            nx, ny, nb = (int.from_bytes(f.read(4), 'little') for i in range(3))
+            u = np.frombuffer(f.read(nx*ny*nb), dtype=f'f{nb}').reshape((ny, nx))
+            yield (u[1:-1, :-1] + u[1:-1, 1:]) / 2
+
+            nx, ny, nb = (int.from_bytes(f.read(4), 'little') for i in range(3))
+            v = np.frombuffer(f.read(nx*ny*nb), dtype=f'f{nb}').reshape((ny, nx))
+            yield (v[:-1, 1:-1] + v[1:, 1:-1]) / 2
+
+            nx, ny, nb = (int.from_bytes(f.read(4), 'little') for i in range(3))
+            p = np.frombuffer(f.read(nx*ny*nb), dtype=f'f{nb}').reshape((ny, nx))
+            yield p[1:-1, 1:-1]
+
+            w = (u[:-2, :-1] + u[:-2, 1:] - u[2:, :-1] - u[2:, 1:] +
+                 v[:-1, 2:] + v[1:, 2:] - v[1:, :-2] - v[:-1, :-2]) / 4
+            yield w
+
+    return np.stack(list(readf())).transpose(1, 2, 0) # (C, H, W) -> (H, W, C)
+
+
 @contextmanager
 def post_base(dest=None):
     if not dest:
@@ -94,17 +122,20 @@ def collect_result(dest):
     odir = 'result'
     rdir = '__raw__'
     with post_base(dest):
+        files = ut.fsort(glob.iglob('out_*.plt'))
+        last = len(files) - 1
+        if last < 1:
+            return
         os.makedirs(odir, exist_ok=True)
         os.makedirs(rdir, exist_ok=True)
-        files = sorted(glob.iglob('out_*.plt'))
         for i, file in enumerate(files):
             # print(i, end='\r')
             ofile = os.path.join(odir, os.path.basename(file) + '.npy')
-            if os.path.isfile(ofile):
-                continue
-            data = read_plt(file)
-            np.save(ofile, data)
-            shutil.move(file, rdir)
+            if not os.path.isfile(ofile):
+                data = read_plt(file)
+                np.save(ofile, data)
+            if i < last:
+                shutil.move(file, rdir)
 
 
 def pack_data():
@@ -120,6 +151,7 @@ def pack_data():
         ofile = 'vorticity_100.npy'
         print(ofile)
         np.save(ofile, data)
+
 
 ################################################################################
 
@@ -153,9 +185,10 @@ def __test__():
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-run', action='store_true', help='start calculating')
+    parser.add_argument('-exe', default='a', help='start calculating')
     parser.add_argument('-res', action='store_true', help='converting result files')
-    parser.add_argument('--resume', action='store_true',
-                        help='resume')
+    parser.add_argument('--resume', '-r', default='',
+                        help='resume directory name')
     parser.add_argument('-dest', help='output directory name')
     parser.add_argument('-pack', action='store_true', help='packing result files')
     parser.add_argument('-test', action='store_true', help='test mode')
@@ -167,8 +200,12 @@ def main():
     args = get_args()
 
     if args.run:
+        exe_path = f'bin/{args.exe}'
+        exe_ext = '.exe' if os.environ.get('OS') == 'Windows_NT' else '.out'
+        if not exe_path.endswith(exe_ext):
+            exe_path += exe_ext
         with ut.stopwatch('CFD'):
-            run_cfd(resume=args.resume)
+            run_cfd(exe_path, resume=args.resume)
     elif args.res:
         with ut.stopwatch('RES'):
             if args.dest:
