@@ -17,22 +17,21 @@ import cfd_main as cm
 '''NOTE: u, v, p, f, w'''
 
 i = 1
-n = [2, 4][i]
+n = [2, 3][i]
 nm = ['images_p', 'image_w'][i]
 vr = [1, 0.1][i]
-force = False
 FFMPEG = next(filter(os.path.isfile, [
         r'C:\Tools\ffmpeg-4.2.2-win64-static\bin\ffmpeg.exe',
         os.path.abspath(r'bin\ffmpeg.exe')
     ]), None)
 
 
-def plot(dest):
+def plot(dest, force=False):
     flag = False
     with ut.chdir(dest):
         ut.mkdir(nm)
         # files = ut.iglobm('result/*.npy')
-        files = ut.iglobm('*.dat')
+        files = ut.iglobm('result/*.dat')
 
         for file in files:
             basename = ut.basename(file, '.*')
@@ -45,12 +44,12 @@ def plot(dest):
             data = cm.read_raw(file)
 
             # print(data.shape)
-            val = data[:, :, 3] # ((u, v, p, w), ...)
+            val = data[:, :, n] # ((u, v, p, w), ...)
             if n == 2:
-                a = val[val.shape[0]//2, 0]
-                val -= a
+                # a = val[val.shape[0]//2, val.shape[1]//4]
+                val -= val.mean()
 
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=(6, 4))
             fig.subplots_adjust(left=0.08, right=1, bottom=0, top=1)
 
             colors = [(0, '#ff0000'), (0.5, '#000000'), (1, '#00ff00')]
@@ -64,7 +63,7 @@ def plot(dest):
             cax.ax.set_position(cax_pos1)
 
             # plt.show()
-            fig.savefig(image)
+            fig.savefig(image, bbox_inches='tight', pad_inches=0.1)
             plt.close('all')
             flag = True
     return flag
@@ -83,8 +82,8 @@ def mk_v(dest, file='out.mp4'):
 def main():
     for d in os.listdir('.'):
         if os.path.isdir(d) and os.path.isfile(d+'/in2d.txt'):
-            if plot(d):
-                mk_v(d)
+            if plot(d, force=False):
+                mk_v(d, file=f'out{nm[-2:]}.mp4')
 
 
 if __name__ == '__main__':

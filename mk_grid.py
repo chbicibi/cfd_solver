@@ -5,7 +5,9 @@ import os
 import re
 
 import numpy as np
+from matplotlib import pyplot as plt
 from PIL import Image, ImageFilter
+from scipy import interpolate
 
 from plot_grid import plot_shape
 
@@ -18,20 +20,23 @@ def rotate(x, y, cx, cy, a):
     return x_, y_
 
 
-def naca4(mr, pr, t, c, n=1000):
-    m = mr * c
-    p = pr * c
+def naca4(mr, pr, t, c, n=1000, get_func=False):
+    m = mr * c # 最大キャンバー
+    p = pr * c # 最大キャンバー位置
     ct5 = 5 * c * t
+
     def yc(x):
         if x < p:
             return m * x       / p       ** 2 * ( 2 * p -     x / c)
         else:
             return m * (c - x) / (1 - p) ** 2 * (-2 * p + 1 + x / c)
+
     def dyc_dx(x):
         if x < p:
             return 2 * m / p       ** 2 * (p - x / c)
         else:
             return 2 * m / (1 - p) ** 2 * (p - x / c)
+
     def yt(x):
         xc = x / c
         return ct5 * (  0.2969 * xc ** 0.5
@@ -39,14 +44,43 @@ def naca4(mr, pr, t, c, n=1000):
                       - 0.3516 * xc ** 2
                       + 0.2843 * xc ** 3
                       - 0.1015 * xc ** 4)
+
     def shape(x):
         ytx = yt(x)
         ycx = yc(x)
         tt = math.atan(dyc_dx(x))
         yts = ytx * math.sin(tt)
         ytc = ytx * math.cos(tt)
-        return x, ycx, x - yts, x + yts, ycx + ytc, ycx - ytc
-    return [shape(i / (n - 1.0)) for i in range(n)]
+        xu, xl, yu, yl = x - yts, x + yts, ycx + ytc, ycx - ytc
+        return xu, xl, yu, yl
+
+    def line_f(xus, xls, yus, yls):
+        line_u = interpolate.interp1d(xus, yus, kind='cubic')
+        line_l = interpolate.interp1d(xls, yls, kind='cubic')
+        xlim = max(xus[0], xls[0]), min(xus[-1], xls[-1])
+
+        # xs = np.linspace(*xlim, 1000)
+        # print(xs)
+        # yu = line_u(xs)
+        # yl = line_l(xs)
+        # print(xus[-1], yus[-1])
+        # print(xls[-1], yls[-1])
+        # plt.plot(xs, yu)
+        # plt.plot(xs, yl)
+        # plt.show()
+
+        def f_(x, y):
+            # print(x, y)
+            if xlim[0] <= x <= xlim[1]:
+                return line_l(x) <= y <= line_u(x)
+            else:
+                return False
+        return f_
+
+    if get_func:
+        return line_f(*zip(*map(shape, np.linspace(0, 1, n))))
+    else:
+        return list(map(shape, np.linspace(0, 1, n)))
 
 
 ################################################################################
@@ -88,6 +122,12 @@ def grid_plate_a(shape, alpha):
 
 
 def grid_wing(shape, alpha, params=(0.02, 0.4, 0.12, 1.0)):
+    if type(params) is str:
+        params = (int(params[0]) * 0.01,
+                  int(params[1]) * 0.1,
+                  int(params[2:]) * 0.01,
+                  1.0)
+
     ny, nx = shape
     grid = np.ones(shape, dtype=np.uint8)
 
@@ -98,13 +138,24 @@ def grid_wing(shape, alpha, params=(0.02, 0.4, 0.12, 1.0)):
     cx = left + length // 2
     cy = ny // 2
 
-    for _x, _yc, xu, xl, yu, yl in naca4(*params, n=1000):
-        for x0, y0 in ((xu, yu), (xl, yl)):
-            for i in range(100):
-                x = left + length * x0
-                y = cy - length * y0 * i / 99
-                x_, y_ = map(int, rotate(x, y, cx, cy, a_rad))
-                grid[y_, x_] = 0
+    # for xu, xl, yu, yl in naca4(*params, n=1000):
+    #     for x0, y0 in ((xu, yu), (xl, yl)):
+    #         for i in np.linspace(0, 1, 100):
+    #             x = left + length * x0
+    #             y = cy - length * y0 * i
+    #             x_, y_ = map(int, rotate(x, y, cx, cy, a_rad))
+    #             grid[y_, x_] = 0
+
+    naca_f = naca4(*params, n=1000, get_func=True)
+    for i in range(nx):
+        for j in range(ny):
+            x_, y_ = rotate(i+0.5, ny-j+0.5, cx, cy, a_rad)
+            ix = (x_ - left) / length
+            iy = (y_ - cy) / length
+
+            if naca_f(ix, iy):
+                grid[j, i] = 0
+
     return grid
 
 
@@ -120,7 +171,7 @@ def grid_cylinder(shape, alpha=0, ry=6):
 
     for i in range(nx):
         for j in range(ny):
-            if (cx - i) ** 2 + (cy - j) ** 2 < r ** 2:
+            if (cx - i - 0.5) ** 2 + (cy - j - 0.5) ** 2 < r ** 2:
                 grid[j, i] = 0
     return grid
 
@@ -137,7 +188,7 @@ def grid_ellipse(shape, alpha=0, ry=8):
 
     for i in range(nx):
         for j in range(ny):
-            x_, y_ = rotate(i, j, cx, cy, a_rad)
+            x_, y_ = rotate(i + 0.5, j + 0.5, cx, cy, a_rad)
             if ((cx - x_) / a) ** 2 + ((cy - y_) / b) ** 2 < 1:
                 grid[j, i] = 0
     return grid
@@ -155,7 +206,7 @@ def grid_prism(shape, alpha=0, ry=8):
 
     for i in range(nx):
         for j in range(ny):
-            x_, y_ = rotate(i, j, cx, cy, a_rad)
+            x_, y_ = rotate(i + 0.5, j + 0.5, cx, cy, a_rad)
             if cx - w < x_ < cx + w and cy - h < y_ < cy + h:
                 grid[j, i] = 0
     return grid
@@ -184,23 +235,23 @@ def dump_grid(grid, file):
 
 ################################################################################
 
-def make_grid(args, info, **kwargs):
+def make_grid(args, info):
     a = args.a
     t = args.t
     print('alpha=', a, 'deg', 'type=', t)
     shape = [info[k] for k in ('ny', 'nx')]
 
     if t == 'wing':
-        grid = grid_wing(shape, a)
+        grid = grid_wing(shape, a, args.naca)
 
     elif t == 'cylinder':
-        grid = grid_cylinder(shape, a, **kwargs)
+        grid = grid_cylinder(shape, a, ry=args.r)
 
     elif t == 'ellipse':
-        grid = grid_ellipse(shape, a, **kwargs)
+        grid = grid_ellipse(shape, a, ry=args.r)
 
     elif t == 'prism':
-        grid = grid_prism(shape, a, **kwargs)
+        grid = grid_prism(shape, a, ry=args.r)
 
     elif t == 'plate':
         grid = grid_plate_a(shape, a)
@@ -254,6 +305,7 @@ def get_args():
                         help='grid shape')
     parser.add_argument('-r', default=6, type=float, help='y ratio')
     parser.add_argument('-i', default='', help='create from png')
+    parser.add_argument('--naca', default='0012', help='params for NACA4')
     parser.add_argument('--plot', action='store_true', help='plot shape')
     parser.add_argument('--test', action='store_true', help='test mode')
     args = parser.parse_args()
@@ -272,7 +324,7 @@ def main():
     if args.i:
         grid = cvt_grid(args.i)
     else:
-        grid = make_grid(args, info, ry=args.r)
+        grid = make_grid(args, info)
 
     print(grid.shape, grid.dtype)
     dump_grid(grid, 'grid.csv')

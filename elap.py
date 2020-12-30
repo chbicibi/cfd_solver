@@ -23,7 +23,8 @@ def main1():
 
 def main():
     plt.figure()
-    for file in ut.iglobm('*{ada*,o1.7-pblc*}/nitr.csv'):
+    ymax = 100
+    for file in ut.iglobm('*/nitr.csv'):
         if 'fix' in file or 'colab' in file:
             continue
         label = os.path.dirname(file)
@@ -36,15 +37,18 @@ def main():
                              for i in range(len(a))])
 
         plt.plot(*a.T, lw=1, label=label)
+        if a.shape[0] > 5000:
+            ymax = max(ymax, a[5000:, 1].max()+10)
+
 
     plt.xlim(0, 20000)
-    plt.ylim(0, 100)
-    # plt.yscale('log')
-    plt.legend()
+    # plt.ylim(0, ymax)
+    plt.yscale('log')
     plt.xlabel('cycle')
     plt.ylabel('itr')
     # plt.show()
-    png = 'nitr-ada.png'
+    png = 'nitr.png'
+    plt.legend()
     plt.savefig(png, bbox_inches='tight', pad_inches=0.1, dpi=600)
 
 

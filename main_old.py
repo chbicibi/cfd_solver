@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 import argparse
 import glob
 import os
@@ -105,7 +103,7 @@ def read_raw(file):
 
             w = (u[:-2, :-1] + u[:-2, 1:] - u[2:, :-1] - u[2:, 1:] +
                  v[:-1, 2:] + v[1:, 2:] - v[1:, :-2] - v[:-1, :-2]) / 4
-            yield -w
+            yield w
 
     return np.stack(list(readf())).transpose(1, 2, 0) # (C, H, W) -> (H, W, C)
 

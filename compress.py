@@ -1,8 +1,10 @@
+import argparse
 import math
 import os
 import re
 import subprocess
 import time
+from tqdm import tqdm
 from zipfile import ZipFile, ZIP_DEFLATED
 import numpy as np
 import myutils as ut
@@ -64,13 +66,13 @@ def comp_main():
 
 
 def zip_main():
-    for d in ut.fsort(os.listdir('.')):
-        loc = f'{d}/image_w'
+    for loc in ut.fsort(ut.iglobm('**/image_*')):
+        # loc = f'{d}/image_w'
         if not os.path.isdir(loc):
             continue
 
         with ut.chdir(loc):
-            file = f'image_w.zip'
+            file = f'{ut.basename(loc)}.zip'
             if os.path.isfile(file):
                 continue
 
@@ -80,11 +82,13 @@ def zip_main():
             try:
                 def f_():
                     for png in ut.fsort(ut.iglobm('*.png')):
-                        print(png, os.getsize(png), end='\r')
+                        print(png, os.path.getsize(png), end='\r')
                         with open(png, 'rb'):
                             yield png
 
                 pngs = list(f_())
+                if not pngs:
+                    continue
 
                 with ZipFile(file, 'w', compression=ZIP_DEFLATED) as z:
                     for png in pngs:
@@ -104,8 +108,50 @@ def zip_main():
                             os.remove(png)
 
 
+def chop_main():
+    def f_(file):
+        with np.load(file) as npz:
+            for f in npz.files:
+                name = re.search(r'\d+', f)[0]
+                try:
+                    yield name, npz[f][:, :, :3].transpose(2, 0, 1) # (H, W, C) -> (C, H, W)
+                except:
+                    print(f)
+
+    for file in tqdm(ut.globm('archive/*/result/out_*.npz')):
+        out = file.replace('out', 'uvp')
+
+        if os.path.isfile(out) and os.path.getsize(out) > 100 * 1048576:
+            os.remove(file)
+
+        else:
+            try:
+                np.savez_compressed(out, **dict(f_(file)))
+                os.remove(file)
+
+            except:
+                print(file)
+                if os.path.isfile(out):
+                    os.remove(out)
+                raise
+
+
+    # with np.load(ut.globm('archive/*/result/uvp_*.npz')[0]) as npz:
+    #     print(npz[npz.files[0]].shape)
+
+
 def main():
-    comp_main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--comp', '-c', action='store_true', help='compress results')
+    parser.add_argument('--zip', '-z', action='store_true', help='zip images')
+    args = parser.parse_args()
+
+    if args.comp:
+        chop_main()
+
+    if args.zip:
+        with ut.chdir('archive'):
+            zip_main()
 
 
 if __name__ == '__main__':
